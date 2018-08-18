@@ -1,6 +1,7 @@
 import time
 import flask
 import uuid
+from pytz import utc
 from apscheduler.schedulers.background import BackgroundScheduler
 
 
@@ -26,7 +27,7 @@ def show():
     pass
 
 
-@scheduler.scheduled_job(trigger='interval', seconds=1)
+@scheduler.scheduled_job(trigger='interval', seconds=1, timezone=utc)
 def tick():
     print(time.time())
 
