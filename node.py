@@ -81,27 +81,21 @@ class MembershipList:
     def update_all(self, membership_list):
         with self._lock:
             for member_to_update in membership_list:
+                member_info = MemberInfo(
+                    member_to_update['id'],
+                    member_to_update['last_heartbeat'],
+                    member_to_update['last_timestamp'],
+                )
                 if not member_to_update['id'] in self._members:
-                    self._members[member_to_update['id']] = MemberInfo(
-                        member_to_update['id'],
-                        member_to_update['last_heartbeat'],
-                        member_to_update['last_timestamp'],
-                    )
+                    self._members[member_to_update['id']] = member_info
                 else:
                     existing_member = self._members[member_to_update['id']]
-                    existing_member.update(MemberInfo(
-                        member_to_update['id'],
-                        member_to_update['last_heartbeat'],
-                        member_to_update['last_timestamp'],
-                    ))
+                    existing_member.update(member_info)
 
-    def randomly_choose(self, n, exclude=None):
+    def choose_peers(self, n, exclude=None):
         """Randomly returns at most `n` peers excluding the ones in the `exclude` list """
-        exclude = exclude or []
-        exclude = set(exclude)
-        candidates = [
-            m for m in self._members if m not in exclude
-        ]
+        exclude = set(exclude or [])
+        candidates = [ m for m in self._members if m not in exclude ]
         random.shuffle(candidates)
         return candidates[:n]
 
@@ -121,10 +115,11 @@ def members():
     return flask.jsonify(membership_list.json())
 
 
-@scheduler.scheduled_job(trigger='interval', seconds=1, timezone=utc)
 def tick():
-    membership_list.update_one(app.node_id, lambda member_info: member_info.increment_heartbeat())
-    peers = membership_list.randomly_choose(2, exclude=[app.node_id])
+    # self heartbeat
+    membership_list.update_one(app.node_id,
+                               lambda member_info: member_info.increment_heartbeat())
+    peers = membership_list.choose_peers(2, exclude=[app.node_id])
     for peer in peers:
         response = requests.post('http://{}/members'.format(peer), json=membership_list.json())
         logging.debug(response)
@@ -140,8 +135,15 @@ def start_app(node_id):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-b', '--bind')
-    parser.add_argument('-p', '--peers')
+    parser.add_argument('-b', '--bind', help='Host IP + port to bind the process to')
+    parser.add_argument('-p', '--peers', help='Initial peer addresses')
+    parser.add_argument('-t', '--protocol-period', type=int, help='Protocol period T in seconds', default=1)
+    parser.add_argument('-s', '--suspicion-threshold', type=int,
+                        help='How many heartbeats are allowed to miss before the node is put in the "suspected" state',
+                        default=5)
+    parser.add_argument('-f', '--failure-threshold', type=int,
+                        help='How many heartbeats are allowed to miss before the node is deemed "failed" and removed',
+                        default=10)
     options = parser.parse_args()
 
     if not options.bind:
@@ -158,5 +160,13 @@ if __name__ == '__main__':
         for peer in options.peers.split(','):
             membership_list.add_or_update(peer, 0, int(time.time()))
 
+    app.suspicion_threshold = options.suspicion_threshold
+    app.failure_threshold = options.failure_threshold
+
+    logger.info('Protocol Period: {}s'.format(options.protocol_period))
+    logger.info('Suspicion Threshold: {}'.format(app.suspicion_threshold))
+    logger.info('Failure Threshold: {}'.format(app.failure_threshold))
+
+    scheduler.add_job(tick, trigger='interval', seconds=options.protocol_period, timezone=utc)
     scheduler.start()
     start_app(node_id)

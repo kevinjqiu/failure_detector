@@ -81,11 +81,24 @@ def list_nodes(ctx):
     print(tabulate.tabulate(network_state['peers'].items()))
 
 
-@task
-def list_members(ctx, node_id):
+def list_members_for_node(node_id):
     response = requests.get('http://{}/members'.format(node_id))
     response_json = response.json()
     headers = {}
     if len(response_json) > 1:
         headers = {k:k for k in response_json[0].keys()}
     print(tabulate.tabulate(response_json, headers=headers))
+
+
+@task
+def list_members(ctx, node_id=None):
+    if node_id is not None:
+        list_members_for_node(node_id)
+        return
+
+    network_state = read_network_state()
+    for id, peer in network_state['peers'].items():
+        print('Node: {}'.format(id))
+        print('=' * 64)
+        list_members_for_node(id)
+        print()
