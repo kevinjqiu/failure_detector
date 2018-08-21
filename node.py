@@ -27,7 +27,7 @@ class MemberInfo:
         self.id = id                           # id is in the form of <ip>:<port>
         self.last_heartbeat = last_heartbeat   # last received heartbeat sequence no.
         self.last_timestamp = last_timestamp   # last heartbeat received timestamp
-        self.status = 'active'
+        self.status = 'alive'
         self._lock = threading.RLock()
 
     def increment_heartbeat(self):
@@ -41,7 +41,6 @@ class MemberInfo:
                 return
             if updated_member_info.last_heartbeat < self.last_heartbeat:
                 return
-            print('#######################')
             self.last_heartbeat = updated_member_info.last_heartbeat
             self.last_timestamp = int(time.time())
 
@@ -129,6 +128,8 @@ def tick():
     for peer in peers:
         response = requests.post('http://{}/members'.format(peer), json=membership_list.json())
         logging.debug(response)
+    # TODO: mark peer as suspected if the last heartbeat received was below the threshold * protocol period (1s)
+    # TODO: remove peer from the list if the peer is in suspected state and the last heartbeat is more than N sec old
 
 
 def start_app(node_id):

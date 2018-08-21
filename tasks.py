@@ -85,8 +85,7 @@ def list_nodes(ctx):
 def list_members(ctx, node_id):
     response = requests.get('http://{}/members'.format(node_id))
     response_json = response.json()
-    headers = []
-    # if len(response_json) > 1:
-    #     headers = list(response_json[0].keys())
-    #     print(headers)
+    headers = {}
+    if len(response_json) > 1:
+        headers = {k:k for k in response_json[0].keys()}
     print(tabulate.tabulate(response_json, headers=headers))
