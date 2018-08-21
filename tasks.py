@@ -42,6 +42,20 @@ def killall(ctx):
     write_network_state({'peers': {}})
 
 
+@task
+def kill(ctx, id):
+    state = read_network_state()
+    peer = state['peers'].get(id)
+    if not peer:
+        print('{} is not present in the network'.format(peer))
+        return
+    if peer.get('status') == 'killed':
+        print('{} is already killed'.format(peer))
+    ctx.run('kill {}'.format(peer['pid'], warn=True, echo=True))
+    peer['status'] = 'killed'
+    write_network_state(state)
+
+
 @task(pre=[killall])
 def bootstrap(ctx, size=3, ip='192.168.1.133'):
     ctx.run('mkdir -p logs')
@@ -82,12 +96,16 @@ def list_nodes(ctx):
 
 
 def list_members_for_node(node_id):
-    response = requests.get('http://{}/members'.format(node_id))
-    response_json = response.json()
-    headers = {}
-    if len(response_json) > 1:
-        headers = {k:k for k in response_json[0].keys()}
-    print(tabulate.tabulate(response_json, headers=headers))
+    try:
+        response = requests.get('http://{}/members'.format(node_id))
+    except requests.exceptions.ConnectionError:
+        print('Node is down')
+    else:
+        response_json = response.json()
+        headers = {}
+        if len(response_json) > 1:
+            headers = {k:k for k in response_json[0].keys()}
+        print(tabulate.tabulate(response_json, headers=headers))
 
 
 @task

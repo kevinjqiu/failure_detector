@@ -43,6 +43,11 @@ class MemberInfo:
                 return
             self.last_heartbeat = updated_member_info.last_heartbeat
             self.last_timestamp = int(time.time())
+            self.status = 'active'
+
+    def set_status(self, status):
+        with self._lock:
+            self.status = 'suspected'
 
 
 class MembershipList:
@@ -99,6 +104,35 @@ class MembershipList:
         random.shuffle(candidates)
         return candidates[:n]
 
+    def detect_suspected_nodes(self, threshold, protocol_period):
+        now = int(time.time())
+        with self._lock:
+            for id, member_info in self._members.items():
+                if member_info.status != 'active':
+                    continue
+                # logger.info('last_timestamp={}'.format(member_info.last_timestamp))
+                # logger.info('now-threshold_secs={}'.format(now - threshold_secs))
+                if member_info.last_heartbeat + threshold < (now - member_info.last_timestamp / protocol_period):
+                    logger.info('No heartbeat from {} for {}s, mark it as suspected'.format(id, threshold_secs))
+                    member_info.set_status('suspected')
+
+    def remove_dead_nodes(self, threshold_secs, protocol_period):
+        pass
+        # now = int(time.time())
+        # members_to_delete = []
+        # with self._lock:
+        #     for id, member_info in self._members.items():
+        #         if member_info.status != 'suspected':
+        #             continue
+        #         if member_info.last_timestamp < now - threshold_secs:
+        #             logger.info('No heartbeat from {} for {}s, remove it from membership list'.format(id,
+        #                                                                                               threshold_secs))
+        #             members_to_delete.append(id)
+
+        #     for id in members_to_delete:
+        #         del self._members[id]
+        #         logger.info('Member {} deleted'.format(id))
+
 
 membership_list = MembershipList()
 
@@ -121,10 +155,14 @@ def tick():
                                lambda member_info: member_info.increment_heartbeat())
     peers = membership_list.choose_peers(2, exclude=[app.node_id])
     for peer in peers:
-        response = requests.post('http://{}/members'.format(peer), json=membership_list.json())
-        logging.debug(response)
-    # TODO: mark peer as suspected if the last heartbeat received was below the threshold * protocol period (1s)
-    # TODO: remove peer from the list if the peer is in suspected state and the last heartbeat is more than N sec old
+        try:
+            response = requests.post('http://{}/members'.format(peer), json=membership_list.json())
+            logging.debug(response)
+        except:
+            pass
+
+    membership_list.detect_suspected_nodes(app.suspicion_threshold_beats, app.protocol_period)
+    membership_list.remove_dead_nodes(app.failure_threshold_beats, app.protocol_period)
 
 
 def start_app(node_id):
@@ -160,13 +198,14 @@ if __name__ == '__main__':
         for peer in options.peers.split(','):
             membership_list.add_or_update(peer, 0, int(time.time()))
 
-    app.suspicion_threshold = options.suspicion_threshold
-    app.failure_threshold = options.failure_threshold
+    app.protocol_period = options.protocol_period
+    app.suspicion_threshold_beats = options.suspicion_threshold
+    app.failure_threshold_beats = options.failure_threshold
 
-    logger.info('Protocol Period: {}s'.format(options.protocol_period))
-    logger.info('Suspicion Threshold: {}'.format(app.suspicion_threshold))
-    logger.info('Failure Threshold: {}'.format(app.failure_threshold))
+    logger.info('Protocol Period: {}s'.format(app.protocol_period))
+    logger.info('Suspicion Threshold (beats): {}'.format(app.suspicion_threshold_beats))
+    logger.info('Failure Threshold (beats): {}'.format(app.failure_threshold_beats))
 
-    scheduler.add_job(tick, trigger='interval', seconds=options.protocol_period, timezone=utc)
+    scheduler.add_job(tick, trigger='interval', seconds=app.protocol_period, timezone=utc)
     scheduler.start()
     start_app(node_id)
