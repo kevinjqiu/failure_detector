@@ -27,11 +27,22 @@ class MemberInfo:
         self.id = id                           # id is in the form of <ip>:<port>
         self.last_heartbeat = last_heartbeat   # last received heartbeat sequence no.
         self.last_timestamp = last_timestamp   # last heartbeat received timestamp
+        self.status = 'active'
         self._lock = threading.RLock()
 
     def increment_heartbeat(self):
         with self._lock:
             self.last_heartbeat += 1
+            self.last_timestamp = int(time.time())
+
+    def update(self, updated_member_info):
+        with self._lock:
+            if updated_member_info.last_timestamp < self.last_timestamp:
+                return
+            if updated_member_info.last_heartbeat < self.last_heartbeat:
+                return
+            print('#######################')
+            self.last_heartbeat = updated_member_info.last_heartbeat
             self.last_timestamp = int(time.time())
 
 
@@ -44,21 +55,22 @@ class MembershipList:
         with self._lock:
             if id in self._members:
                 member_info = self._members[id]
-                # TODO: update according to heartbeat rules
+                member_info.update(MemberInfo(id, last_heartbeat, last_timestamp))
             else:
                 self._members[id] = MemberInfo(id, last_heartbeat, last_timestamp)
 
-    def to_json(self):
+    def json(self):
         return [
             {
                 'id': m.id,
                 'last_heartbeat': m.last_heartbeat,
                 'last_timestamp': m.last_timestamp,
+                'status': m.status,
             }
             for m in self._members.values()
         ]
 
-    def update(self, id, update_func):
+    def update_one(self, id, update_func):
         if id not in self._members:
             logger.warning('Cannot update node {}: the node is not in the member list'.format(id))
             return
@@ -67,9 +79,25 @@ class MembershipList:
             member_info = self._members[id]
             update_func(member_info)
 
+    def update_all(self, membership_list):
+        with self._lock:
+            for member_to_update in membership_list:
+                if not member_to_update['id'] in self._members:
+                    self._members[member_to_update['id']] = MemberInfo(
+                        member_to_update['id'],
+                        member_to_update['last_heartbeat'],
+                        member_to_update['last_timestamp'],
+                    )
+                else:
+                    existing_member = self._members[member_to_update['id']]
+                    existing_member.update(MemberInfo(
+                        member_to_update['id'],
+                        member_to_update['last_heartbeat'],
+                        member_to_update['last_timestamp'],
+                    ))
+
     def randomly_choose(self, n, exclude=None):
-        """Randomly returns at most `n` peers excluding the ones in the `exclude` list
-        """
+        """Randomly returns at most `n` peers excluding the ones in the `exclude` list """
         exclude = exclude or []
         exclude = set(exclude)
         candidates = [
@@ -84,22 +112,22 @@ membership_list = MembershipList()
 
 @app.route('/members', methods=['POST'])
 def receive_heartbeat():
-    # TODO: update all
     request_json = flask.request.json
-    return flask.jsonify(request_json)
+    membership_list.update_all(request_json)
+    return flask.jsonify({})
 
 
 @app.route('/members', methods=['GET'])
 def members():
-    return flask.jsonify(membership_list.to_json())
+    return flask.jsonify(membership_list.json())
 
 
 @scheduler.scheduled_job(trigger='interval', seconds=1, timezone=utc)
 def tick():
-    membership_list.update(app.node_id, lambda member_info: member_info.increment_heartbeat())
+    membership_list.update_one(app.node_id, lambda member_info: member_info.increment_heartbeat())
     peers = membership_list.randomly_choose(2, exclude=[app.node_id])
     for peer in peers:
-        response = requests.post('http://{}/members'.format(peer), json=membership_list.to_json())
+        response = requests.post('http://{}/members'.format(peer), json=membership_list.json())
         logging.debug(response)
 
 
