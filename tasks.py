@@ -43,14 +43,25 @@ def killall(ctx):
 
 
 @task
-def kill(ctx, id):
+def kill(ctx, id=None):
+    """Kill a node given the id.  If id is not specified, kill a random node"""
     state = read_network_state()
+    if id is None:
+        candidates = [p for p in state['peers'].values() if p.get('status') != 'killed']
+        if len(candidates) == 0:
+            print('No nodes to kill')
+            return
+
+        peer = random.choice(candidates)
+        return kill(ctx, id=peer['bind'])
+
     peer = state['peers'].get(id)
     if not peer:
         print('{} is not present in the network'.format(peer))
         return
     if peer.get('status') == 'killed':
         print('{} is already killed'.format(peer))
+    print('Kill peer {}'.format(peer))
     ctx.run('kill {}'.format(peer['pid'], warn=True, echo=True))
     peer['status'] = 'killed'
     write_network_state(state)
@@ -80,10 +91,11 @@ def bootstrap(ctx, size=3, ip='192.168.1.133'):
 def start_node(ctx, bind, peers):
     logfile = open('logs/{}.log'.format(bind), 'w')
     args = ['python', 'node.py', '-b', bind, '-p', peers]
-    print(args)
+    print('Starting node: {}'.format(args))
     p = Popen(args, stdout=logfile, stderr=logfile)
     network_state = read_network_state()
     network_state['peers'][bind] = {
+        'bind': bind,
         'pid': p.pid,
     }
     write_network_state(network_state)
