@@ -5,8 +5,12 @@ import json
 import random
 import tabulate
 import socket
+import colorama
 from invoke import task
 from subprocess import Popen
+
+
+colorama.init()
 
 
 PORT_RANGE = (30000, 65535)
@@ -142,12 +146,23 @@ def list_members_for_node(node_id):
     try:
         response = requests.get('http://{}/members'.format(node_id))
     except requests.exceptions.ConnectionError:
-        print('Node is down')
+        print('{}Node is down{}'.format(colorama.Fore.RED, colorama.Style.RESET_ALL))
     else:
         response_json = response.json()
         headers = {}
         if len(response_json) > 1:
             headers = {k:k for k in response_json[0].keys()}
+
+        for member_info in response_json:
+            if member_info['status'] == 'suspected':
+                member_info['status'] = '{}{}{}'.format(colorama.Fore.YELLOW,
+                                                        member_info['status'],
+                                                        colorama.Style.RESET_ALL)
+            elif member_info['status'] == 'alive':
+                member_info['status'] = '{}{}{}'.format(colorama.Fore.GREEN,
+                                                        member_info['status'],
+                                                        colorama.Style.RESET_ALL)
+
         print(tabulate.tabulate(response_json, headers=headers))
 
 
@@ -159,7 +174,7 @@ def list_members(ctx, node_id=None):
 
     network_state = read_network_state()
     for id, peer in network_state['peers'].items():
-        print('Node: {}'.format(id))
+        print('Node: {}{}{}'.format(colorama.Fore.BLUE, id, colorama.Style.RESET_ALL))
         print('=' * 64)
         list_members_for_node(id)
         print()

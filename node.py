@@ -47,7 +47,7 @@ class MemberInfo:
 
     def set_status(self, status):
         with self._lock:
-            self.status = 'suspected'
+            self.status = status
 
 
 class MembershipList:
