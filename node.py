@@ -2,12 +2,10 @@ import requests
 import argparse
 import time
 import flask
-import uuid
 import threading
 import logging
 import random
 from pytz import utc
-from collections import namedtuple
 from apscheduler.schedulers.background import BackgroundScheduler
 
 
@@ -100,7 +98,7 @@ class MembershipList:
     def choose_peers(self, n, exclude=None):
         """Randomly returns at most `n` peers excluding the ones in the `exclude` list """
         exclude = set(exclude or [])
-        candidates = [ m for m in self._members if m not in exclude ]
+        candidates = [m for m in self._members if m not in exclude]
         random.shuffle(candidates)
         return candidates[:n]
 
@@ -150,16 +148,17 @@ def tick():
     # self heartbeat
     membership_list.update_one(app.node_id,
                                lambda member_info: member_info.increment_heartbeat())
+
+    membership_list.detect_suspected_nodes(app.suspicion_threshold_beats, app.protocol_period)
+    membership_list.remove_dead_nodes(app.failure_threshold_beats, app.protocol_period)
+
     peers = membership_list.choose_peers(2, exclude=[app.node_id])
     for peer in peers:
         try:
             response = requests.post('http://{}/members'.format(peer), json=membership_list.json())
             logging.debug(response)
-        except:
+        except requests.exceptions.ConnectionError:
             pass
-
-    membership_list.detect_suspected_nodes(app.suspicion_threshold_beats, app.protocol_period)
-    membership_list.remove_dead_nodes(app.failure_threshold_beats, app.protocol_period)
 
 
 def start_app(node_id):
