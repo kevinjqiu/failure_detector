@@ -11,8 +11,9 @@ from subprocess import Popen
 
 PORT_RANGE = (30000, 65535)
 
-
 STATE_FILE = 'network.json'
+
+DEFAULT_IP = '192.168.1.133'
 
 
 def is_port_available(ip, port):
@@ -67,38 +68,68 @@ def kill(ctx, id=None):
     write_network_state(state)
 
 
-@task(pre=[killall])
-def bootstrap(ctx, size=3, ip='192.168.1.133'):
-    ctx.run('mkdir -p logs')
-    ctx.run('rm -f logs/*')
-    network_state = read_network_state()
-    while len(network_state['peers']) < size:
+def next_random_bind(ip, max_retries=10):
+    counter = 0
+    while counter < max_retries:
         port = random.randint(*PORT_RANGE)
         bind = '{}:{}'.format(ip, port)
         if not is_port_available(ip, port):
             print('{} is not available.'.format(bind))
+            counter += 1
             continue
+        return bind
+    print('No port available after {} retries'.format(max_retries))
+    return None
+
+
+@task(pre=[killall])
+def up(ctx, size=3, ip=DEFAULT_IP):
+    """Start up a cluster locally"""
+    ctx.run('mkdir -p logs')
+    ctx.run('rm -f logs/*')
+    network_state = read_network_state()
+    while len(network_state['peers']) < size:
+        bind = next_random_bind(ip)
+        if not bind:
+            return
 
         network_state['peers'][bind] = {}
 
     peers = network_state['peers'].keys()
 
     for peer in peers:
-        start_node(ctx, peer, ','.join([p for p in peers if p != peer]))
+        start_node(peer, ','.join([p for p in peers if p != peer]))
 
 
-@task
-def start_node(ctx, bind, peers):
-    logfile = open('logs/{}.log'.format(bind), 'w')
+def start_node(bind, peers):
+    outfile = open('logs/{}.log'.format(bind), 'w')
+    errfile = open('logs/{}-err.log'.format(bind), 'w')
     args = ['python', 'node.py', '-b', bind, '-p', peers]
-    print('Starting node: {}'.format(args))
-    p = Popen(args, stdout=logfile, stderr=logfile)
+    print('Starting node: {} with peers {}'.format(bind, peers))
+    p = Popen(args, stdout=outfile, stderr=errfile)
     network_state = read_network_state()
     network_state['peers'][bind] = {
         'bind': bind,
         'pid': p.pid,
     }
     write_network_state(network_state)
+
+
+@task
+def add_node(ctx, ip=DEFAULT_IP):
+    """Add a node to the cluster"""
+    network_state = read_network_state()
+    peers = [peer for peer in network_state['peers'].values() if peer.get('status') != 'killed']
+    if len(peers) == 0:
+        print('No available peers.')
+        return
+
+    peer = random.choice(peers)
+    bind = next_random_bind(ip)
+    if not bind:
+        return
+
+    start_node(bind, peer['bind'])
 
 
 @task
