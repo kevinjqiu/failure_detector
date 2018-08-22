@@ -13,7 +13,7 @@ PORT_RANGE = (30000, 65535)
 
 STATE_FILE = 'network.json'
 
-DEFAULT_IP = '192.168.1.133'
+DEFAULT_IP = '127.0.1.1'
 
 
 def is_port_available(ip, port):
