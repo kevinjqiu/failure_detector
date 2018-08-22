@@ -37,13 +37,13 @@ class MemberInfo:
 
     def update(self, updated_member_info):
         with self._lock:
-            if updated_member_info.last_timestamp < self.last_timestamp:
+            if updated_member_info.last_timestamp <= self.last_timestamp:
                 return
-            if updated_member_info.last_heartbeat < self.last_heartbeat:
+            if updated_member_info.last_heartbeat <= self.last_heartbeat:
                 return
             self.last_heartbeat = updated_member_info.last_heartbeat
             self.last_timestamp = int(time.time())
-            self.status = 'active'
+            self.status = 'alive'
 
     def set_status(self, status):
         with self._lock:
@@ -108,30 +108,27 @@ class MembershipList:
         now = int(time.time())
         with self._lock:
             for id, member_info in self._members.items():
-                if member_info.status != 'active':
+                if member_info.status != 'alive':
                     continue
-                # logger.info('last_timestamp={}'.format(member_info.last_timestamp))
-                # logger.info('now-threshold_secs={}'.format(now - threshold_secs))
-                if member_info.last_heartbeat + threshold < (now - member_info.last_timestamp / protocol_period):
-                    logger.info('No heartbeat from {} for {}s, mark it as suspected'.format(id, threshold_secs))
+                if member_info.last_timestamp < now - (threshold * protocol_period):
+                    logger.info('No heartbeat from {} for {} beats, mark it as suspected'.format(id, threshold))
                     member_info.set_status('suspected')
 
-    def remove_dead_nodes(self, threshold_secs, protocol_period):
-        pass
-        # now = int(time.time())
-        # members_to_delete = []
-        # with self._lock:
-        #     for id, member_info in self._members.items():
-        #         if member_info.status != 'suspected':
-        #             continue
-        #         if member_info.last_timestamp < now - threshold_secs:
-        #             logger.info('No heartbeat from {} for {}s, remove it from membership list'.format(id,
-        #                                                                                               threshold_secs))
-        #             members_to_delete.append(id)
+    def remove_dead_nodes(self, threshold, protocol_period):
+        now = int(time.time())
+        members_to_delete = []
+        with self._lock:
+            for id, member_info in self._members.items():
+                if member_info.status != 'suspected':
+                    continue
+                if member_info.last_timestamp < now - (threshold * protocol_period):
+                    logger.info('No heartbeat from {} for {} beats, remove it from membership list'.format(id,
+                                                                                                           threshold))
+                    members_to_delete.append(id)
 
-        #     for id in members_to_delete:
-        #         del self._members[id]
-        #         logger.info('Member {} deleted'.format(id))
+            for id in members_to_delete:
+                del self._members[id]
+                logger.info('Member {} deleted'.format(id))
 
 
 membership_list = MembershipList()
