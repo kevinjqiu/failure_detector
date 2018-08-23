@@ -84,3 +84,7 @@ to kill a specific node, or
 to kill a random node.
 
 Observe `watch inv list-members` that the membership list of other nodes will eventually have the killed node removed and the same list gossipped across the network to all nodes.
+
+# Demo
+
+[![asciicast](https://asciinema.org/a/WA7oDFiBKk9DiSh5CPrpsB8f2.png)](https://asciinema.org/a/WA7oDFiBKk9DiSh5CPrpsB8f2)
